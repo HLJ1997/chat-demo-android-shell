@@ -1,8 +1,12 @@
-# chat-demo 安卓壳工程（最小可跑）
+# chat-demo 安卓壳工程
 
-把 [deepseek-ai/chat-demo](https://github.com/deepseek-ai/chat-demo) 的静态产物装进 Android WebView，做成一个可以独立安装、也可被其它 App 集成的壳。
+把 chat-demo 的静态产物装进 Android WebView，做成一个可以独立安装、也可被其它 App 集成的壳。
+
+> **前端主线**：不再依赖上游 `deepseek-ai/chat-demo`，改为使用我们的维护 fork
+> [`HLJ1997/chat-demo`](https://github.com/HLJ1997/chat-demo)。原因见下方「为什么用自己的 fork」。
 
 **当前状态：已在真机上完成构建、安装与功能验证（2026-11-16）。**
+
 
 验证设备：Xiaomi M2007J1SC，Android 13（SDK 33），系统 WebView = **Chrome 108.0.5359.128**。
 
@@ -41,7 +45,23 @@
 + const sorted = [...file.messages].sort((a, b) => a.id - b.id)
 ```
 
-语义等价（都返回新数组、不改原数组）。**如果要向 chat-demo 提 PR，这两行就是最小补丁**；更彻底的做法是把 `targets` 里的 `chrome >= 105` 提高到 110，或在构建里加 polyfill。
+语义等价（都返回新数组、不改原数组）。
+
+### 为什么用自己的 fork，而不是给上游提 PR
+
+上游 `deepseek-ai/chat-demo` **关闭了 Pull Requests 与 Issues**：
+
+```
+has_pull_requests: false
+has_issues: false
+```
+
+API 创建 PR 返回 `404`，`gh pr create` 报 `does not have the correct permissions to execute CreatePullRequest`——不是权限问题，而是仓库层面关掉了功能，任何人都提不了。
+
+因此改为在 fork `HLJ1997/chat-demo` 的 `main` 上维护这个补丁（fork 里有 [`FORK-NOTES.md`](https://github.com/HLJ1997/chat-demo/blob/main/FORK-NOTES.md) 记录差异与同步上游的方法）。本仓库的前端产物由该 fork 构建而来，不再手工拼接。
+
+如果上游将来开启 PR，可直接用 [这个比较链接](https://github.com/deepseek-ai/chat-demo/compare/main...HLJ1997:main) 提交。
+
 
 
 ---
@@ -53,15 +73,43 @@ android-shell/
 ├─ settings.gradle.kts
 ├─ build.gradle.kts
 ├─ gradle.properties
+├─ .github/workflows/android.yml    ← CI：构建 APK、打 tag 发 Release
+├─ scripts/
+│  ├─ sync-frontend.ps1             ← 从 fork 构建前端并同步 assets（Windows）
+│  └─ sync-frontend.sh              ← 同上（Linux/macOS/CI）
 └─ app/
    ├─ build.gradle.kts
    └─ src/main/
       ├─ AndroidManifest.xml
       ├─ java/com/example/chatshell/MainActivity.kt
-      └─ assets/www/                 ← chat-demo 的 dist/ 全量拷贝（153 文件 / 4.19 MB）
+      └─ assets/www/                 ← 由 scripts/sync-frontend.* 生成（153 文件 / 4.19 MB）
          ├─ index.html
          └─ static/{js,css,media}/…
 ```
+
+## 同步前端（改了前端之后）
+
+`assets/www` 是从前端 fork 构建出来的产物，**不要手改**。前端改动后重新同步：
+
+```powershell
+# Windows
+.\scripts\sync-frontend.ps1
+```
+
+```bash
+# Linux / macOS / CI
+./scripts/sync-frontend.sh
+```
+
+默认从 `https://github.com/HLJ1997/chat-demo.git` 的 `main` 构建，可覆盖：
+
+```powershell
+.\scripts\sync-frontend.ps1 -Repo <仓库> -Ref <分支/提交>
+```
+
+脚本流程：浅克隆 fork → `pnpm install --frozen-lockfile` → `rspack build`（直接调用 rspack，绕过上游 `pnpm build` 的 Unix 语法）→ 覆盖 `assets/www`。
+
+实测耗时约 7 秒（依赖已缓存时 3.9s 安装 + 790ms 构建），产物与已提交内容**逐字节一致**，可复现。
 
 ## 构建
 
@@ -76,6 +124,8 @@ gradle wrapper --gradle-version 8.7   # 首次生成 wrapper（本仓库未附�
 # 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
 
+或者直接用 CI 产出的 APK（见下）。
+
 安装：
 
 ```sh
@@ -84,6 +134,19 @@ adb shell am start -n com.example.chatshell/.MainActivity
 ```
 
 最小支持 Android 8.0（API 26），目标 API 34。
+
+## 持续集成
+
+`.github/workflows/android.yml` 在 push 到 `main`、提 PR、或手动触发时：
+
+1. 检出壳工程 → 安装 Node/pnpm
+2. **从 fork 构建前端并同步 `assets/www`**
+3. 校验同步结果与提交内容一致（不一致给 warning，防止「改了前端忘了同步」）
+4. 安装 JDK 17 + Gradle 8.7 → `assembleDebug`
+5. 上传 `app-debug.apk` 为构建产物
+
+打 `v*` 标签时，会自动创建 GitHub Release 并附上 APK。
+
 
 ## 三个关键设计
 

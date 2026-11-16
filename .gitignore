@@ -7,3 +7,5 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+# 前端源码的临时检出目录（scripts/sync-frontend.* 生成）
+.frontend-work/
