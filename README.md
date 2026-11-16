@@ -149,7 +149,7 @@ adb shell am start -n com.example.chatshell/.MainActivity
 
 ### 签名：为什么需要配置一个固定 keystore
 
-GitHub runner 每次构建都会新生成 `~/.android/debug.keystore`，**签名证书因此每次不同**（实测两次运行的证书指纹分别为 `9c670b…`、`17f322…`）。后果是：新版本无法覆盖安装旧的，用户必须先卸载——对走 Release 分发的项目不可接受。
+GitHub runner 每次构建都会新生成 `~/.android/debug.keystore`，**签名证书因此每次不同**（实测三次运行的证书指纹分别为 `9c670b…`、`58a6b3…`、`3d49bf…`）。后果是：新版本无法覆盖安装旧的，用户必须先卸载——对走 Release 分发的项目不可接受。
 
 解决办法是让 CI 复用同一个 keystore：
 
@@ -159,14 +159,25 @@ GitHub runner 每次构建都会新生成 `~/.android/debug.keystore`，**签名
    keytool -genkeypair -v -keystore debug.keystore -storepass android -keypass android \
      -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
      -dname "CN=Android Debug,O=Android,C=US"
-   base64 -w0 debug.keystore > debug.keystore.b64    # Windows: [Convert]::ToBase64String([IO.File]::ReadAllBytes('debug.keystore'))
+   base64 -w0 debug.keystore > debug.keystore.b64
+   # Windows: [Convert]::ToBase64String([IO.File]::ReadAllBytes('debug.keystore'))
    ```
 
 2. 在仓库 Settings → Secrets and variables → Actions 添加 secret `DEBUG_KEYSTORE_BASE64`，值为上一步的 base64 文本。
 
-3. 工作流会把它还原到 `~/.android/debug.keystore` 后再构建。未配置时行为不变（每次新 keystore），仅会打日志提示。
+3. 工作流会把 base64 还原到 `$RUNNER_TEMP/keystore/debug.keystore`，并通过 **AGP 的注入签名属性**显式指定：
 
-> 已发布的 `v0.1.0` 是在本修复**之前**构建的，其签名证书属于一次性生成的 keystore。配置 secret 后重新打标签（例如 `v0.1.1`）即可获得稳定签名的产物。
+   ```
+   -Pandroid.injected.signing.store.file=... -Pandroid.injected.signing.store.password=android
+   -Pandroid.injected.signing.key.alias=androiddebugkey -Pandroid.injected.signing.key.password=android
+   ```
+
+   这里没有依赖 `~/.android/debug.keystore` 的默认路径——实测把 keystore 放到默认位置**并不会被采用**（三次运行仍是三个不同证书），必须用注入属性显式指定。配置后实测产物证书固定为 keystore 自身指纹。
+
+未配置 secret 时行为不变（每次新 keystore），构建照常成功。
+
+> 已发布的 `v0.1.0` 是在本修复**之前**构建的，其签名证书属于一次性 keystore。配置 secret 后重新打标签（例如 `v0.1.1`）即可获得稳定签名的产物。
+
 
 
 
