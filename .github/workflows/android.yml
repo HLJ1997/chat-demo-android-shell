@@ -1,0 +1,77 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出壳工程
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: 从我们的前端 fork 构建并同步 assets
+        run: bash scripts/sync-frontend.sh
+        env:
+          FRONTEND_REPO: https://github.com/HLJ1997/chat-demo.git
+          FRONTEND_REF: main
+
+      # 前端产物是提交进仓库的；这里校验同步结果与提交内容一致，
+      # 防止「改了前端但忘了把 dist 同步进来」这种漂移。
+      - name: 校验 assets 与提交内容一致
+        run: |
+          if [ -n "$(git status --porcelain app/src/main/assets/www)" ]; then
+            echo "::warning::assets/www 与前端构建结果不一致（请本地运行 scripts/sync-frontend.sh 后提交）"
+            git status --porcelain app/src/main/assets/www | head -20
+          else
+            echo "assets/www 与构建结果一致"
+          fi
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: 构建 debug APK
+        run: gradle --no-daemon --console=plain assembleDebug
+        env:
+          # local.properties 不入库，CI 用 SDK 自带路径
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: 打 tag 时创建 Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/debug/app-debug.apk
+          generate_release_notes: true
