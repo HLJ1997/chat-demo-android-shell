@@ -58,11 +58,14 @@ jobs:
 
       # GitHub runner 每次都会新生成 debug keystore，导致不同次构建的签名证书不同，
       # 用户无法覆盖安装（必须卸载重装）。配置 DEBUG_KEYSTORE_BASE64 后复用同一个 keystore。
+      # 注意：secrets 上下文不能用在 if 里，先映射到 env 再判断。
       - name: 恢复固定的 debug keystore（可选）
-        if: ${{ secrets.DEBUG_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.DEBUG_KEYSTORE_BASE64 != '' }}
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           mkdir -p "$HOME/.android"
-          echo "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 -d > "$HOME/.android/debug.keystore"
+          echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > "$HOME/.android/debug.keystore"
           echo "已恢复固定 debug keystore"
 
       - name: 构建 debug APK
