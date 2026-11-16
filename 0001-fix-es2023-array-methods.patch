@@ -1,0 +1,51 @@
+From f9c1b38d59ed8ca68d952c0c0e7d7ffc8d3bed07 Mon Sep 17 00:00:00 2001
+From: HLJ1997 <HLJ1997@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 11:35:35 +0800
+Subject: [PATCH] fix: avoid ES2023 array methods unsupported by Chrome 105-109
+ WebView
+
+toReversed() and toSorted() require Chrome 110+, but the build target in
+rspack.config.ts is `chrome >= 105`. On Android WebView 105-109 both calls
+throw a TypeError at runtime:
+
+- store.ts: an exception during prepareFiles() is recorded as an upload
+  error, so sending a plain text message fails with "Upload failed".
+- history/toLocal.ts: importing a history ZIP fails the same way.
+
+Replace both with spread plus reverse()/sort(), which are semantically
+equivalent (new array, no mutation of the original) and are supported long
+before Chrome 105.
+---
+ src/services/chat/history/toLocal.ts | 2 +-
+ src/services/chat/store.ts           | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/services/chat/history/toLocal.ts b/src/services/chat/history/toLocal.ts
+index ff7084d..445cf68 100644
+--- a/src/services/chat/history/toLocal.ts
++++ b/src/services/chat/history/toLocal.ts
+@@ -244,7 +244,7 @@ const toAssistant = (message: ChatMessage): AssistantMessage => {
+  * current_message_id 到根的路径为当前分支；其余节点默认选中 id 最大的子消息。
+  */
+ const buildTree = (file: SessionFile): Pick<Session, 'messages' | 'rootMessageId'> => {
+-  const sorted = file.messages.toSorted((a, b) => a.id - b.id)
++  const sorted = [...file.messages].sort((a, b) => a.id - b.id)
+   const byId = new Map<number, Message>()
+   const messages = sorted.map((message) => {
+     const { id, parent_id } = message
+diff --git a/src/services/chat/store.ts b/src/services/chat/store.ts
+index 32e74a5..ccc87fa 100644
+--- a/src/services/chat/store.ts
++++ b/src/services/chat/store.ts
+@@ -844,7 +844,7 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
+   }
+ 
+   const pending = new Map<string, FileAttachment>()
+-  for (const [user] of getContextRounds(request.history).toReversed()) {
++  for (const [user] of [...getContextRounds(request.history)].reverse()) {
+     for (const file of user.files) {
+       if (!file.serverId && !serverIds.has(file.id) && !pending.has(file.id)) {
+         pending.set(file.id, file)
+-- 
+2.56.0.windows.3
+
