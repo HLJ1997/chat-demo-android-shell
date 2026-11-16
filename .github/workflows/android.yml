@@ -73,23 +73,38 @@ jobs:
             cp "$RUNNER_TEMP/keystore/debug.keystore" "$HOME/.android/debug.keystore"
           }
 
+      # 版本号：tag 构建取 tag 名，其它构建用短 sha；versionCode 用时间戳保证单调递增
+      - name: 解析版本号
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=0.0.0-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "code=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
       - name: 构建 debug APK
         env:
           # local.properties 不入库，CI 用 SDK 自带路径
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           # 配置了固定 keystore 时，用 AGP 的注入签名属性显式指定，避免依赖默认路径解析
           INJ_STORE_FILE: ${{ secrets.DEBUG_KEYSTORE_BASE64 != '' && format('{0}/keystore/debug.keystore', runner.temp) || '' }}
+          APP_VERSION_NAME: ${{ steps.ver.outputs.name }}
+          APP_VERSION_CODE: ${{ steps.ver.outputs.code }}
         run: |
+          VERSION_ARGS="-PappVersionName=${APP_VERSION_NAME} -PappVersionCode=${APP_VERSION_CODE}"
+          echo "版本: ${APP_VERSION_NAME} (${APP_VERSION_CODE})"
           if [ -n "$INJ_STORE_FILE" ] && [ -f "$INJ_STORE_FILE" ]; then
             echo "使用注入签名: $INJ_STORE_FILE"
-            gradle --no-daemon --console=plain assembleDebug \
+            gradle --no-daemon --console=plain assembleDebug $VERSION_ARGS \
               -Pandroid.injected.signing.store.file="$INJ_STORE_FILE" \
               -Pandroid.injected.signing.store.password=android \
               -Pandroid.injected.signing.key.alias=androiddebugkey \
               -Pandroid.injected.signing.key.password=android
           else
             echo "未配置固定 keystore，使用默认签名"
-            gradle --no-daemon --console=plain assembleDebug
+            gradle --no-daemon --console=plain assembleDebug $VERSION_ARGS
           fi
 
       - name: 上传 APK

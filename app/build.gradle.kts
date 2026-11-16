@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// 版本号可由构建参数注入（CI 从 tag 取值），本地构建用默认值
+val appVersionName = (findProperty("appVersionName") as String?)?.takeIf { it.isNotBlank() } ?: "1.0"
+val appVersionCode = ((findProperty("appVersionCode") as String?) ?: "1").toIntOrNull() ?: 1
+
 android {
     namespace = "com.example.chatshell"
     compileSdk = 34
@@ -11,8 +15,8 @@ android {
         applicationId = "com.example.chatshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     buildTypes {
